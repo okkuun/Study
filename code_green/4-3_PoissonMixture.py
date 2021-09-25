@@ -20,6 +20,8 @@ class PoissonMixtureModel:
             joint_func = self._joint_gibbs
         elif method == 'vb':
             joint_func = self._joint_vb
+        elif method == 'col-gibbs':
+            joint_func = self._joint_colgibbs
         else:
             Exception(f'You can set method as `gibbs`, `vb`, or `col-gibbs` but you set method = {method}')
 
@@ -118,12 +120,33 @@ class PoissonMixtureModel:
 
         return elbo_list
 
-    # def _joint_colgibbs(self, iter: int) -> list:
-    #     burn_in: int = iter * 0.2
-    #     thread = {'s': []}
-    #     elbo_list = []
-    #     for i in tqdm(range(iter)):
-    #     return elbo_list
+    def _joint_colgibbs(self, iter: int) -> list:
+        # burn_in: int = iter * 0.2
+        # thread = {'s': []}
+        elbo_list = []
+
+        self.pi_dict.alpha = self.s_dict.e.sum(axis=0) + self.pi_dict.alpha0
+        self.lam_dict.a = self.s_dict.e.T @ self.x + self.lam_dict.a0
+        self.lam_dict.b = self.s_dict.e.sum(axis=0) + self.lam_dict.b0
+        # posterior_x = np.empty(self.k)
+        for i in tqdm(range(iter)):
+            for _n in range(len(self.s_dict.e)):
+                self.pi_dict.alpha -= self.s_dict.e[_n]
+                self.lam_dict.a -= self.s_dict.e[_n] * self.x[_n]
+                self.lam_dict.b -= self.s_dict.e[_n]
+                r = self.lam_dict.a
+                p = 1 / (1 + self.lam_dict.b)
+                posterior_x = p * r / (1 - p)
+                posterior_s = self.pi_dict.alpha + 1e-8 / self.pi_dict.alpha.sum()
+                posterior = posterior_x * posterior_s
+                posterior /= posterior.sum()
+                self.s_dict.e[_n] = multinomial.rvs(n=1, p=posterior)
+
+                self.pi_dict.alpha += self.s_dict.e[_n]
+                self.lam_dict.a += self.s_dict.e[_n] * self.x[_n]
+                self.lam_dict.b += self.s_dict.e[_n]
+
+        return elbo_list
 
     def get_elbo(self) -> float:
         # 参考: https://zhiyzuo.github.io/VI/#evidence-lower-bound-elbo
@@ -170,17 +193,19 @@ if __name__ == '__main__':
 
     pmm = PoissonMixtureModel()
 
-    pmm.fit(data, 2, method='gibbs')
+    pmm.fit(data, 2, method='col-gibbs')
 
     # 完全なelboではないから負になってない。変数に依存する項は含まれている。
-    pmm.plot_elbo()
+    # pmm.plot_elbo()
 
-    params = pmm.get_params()
-    x_range = np.arange(20)
-    plt.figure()
-    plt.hist(data, density=True, bins=15)
-    plt.plot(x_range, params['pi'][0]*poisson.pmf(x_range, params['lam'][0]))
-    plt.plot(x_range, params['pi'][1]*poisson.pmf(x_range, params['lam'][1]))
-    plt.show()
-    plt.close()
-    print(params)
+    # params = pmm.get_params()
+    # x_range = np.arange(20)
+    # plt.figure()
+    # plt.hist(data, density=True, bins=15)
+    # plt.plot(x_range, params['pi'][0]*poisson.pmf(x_range, params['lam'][0]))
+    # plt.plot(x_range, params['pi'][1]*poisson.pmf(x_range, params['lam'][1]))
+    # plt.show()
+    # plt.close()
+    # print(params)
+    print(pmm.s_dict.e)
+    print(pmm.s_dict.e.sum(axis=0))
