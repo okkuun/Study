@@ -3,7 +3,7 @@
 import numpy as np
 from common_func import Struct
 from scipy.stats import multinomial, gamma, dirichlet, poisson
-from scipy.special import digamma
+from scipy.special import digamma, logsumexp
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
@@ -62,10 +62,8 @@ class PoissonMixtureModel:
         for i in tqdm(range(iter)):
 
             # s
-            self.s_dict.nu = np.exp(
-                self.x[:, None] @ self.lam_dict.log[None] - self.lam_dict.e[None] + self.pi_dict.log[None]
-            )
-            self.s_dict.nu = self.s_dict.nu / self.s_dict.nu.sum(axis=1)[:, None]
+            _nu = self.x[:, None] @ self.lam_dict.log[None] - self.lam_dict.e[None] + self.pi_dict.log[None]
+            self.s_dict.nu = np.exp(_nu - logsumexp(_nu, axis=1)[:, None])
             for _n in range(len(self.x)):
                 self.s_dict.e[_n] = multinomial.rvs(n=1, p=self.s_dict.nu[_n])
 
@@ -99,10 +97,8 @@ class PoissonMixtureModel:
         elbo_list = []
         for _ in tqdm(range(iter)):
             # s
-            self.s_dict.nu = np.exp(
-                self.x[:, None] @ self.lam_dict.log[None] - self.lam_dict.e[None] + self.pi_dict.log[None]
-            )
-            self.s_dict.nu = self.s_dict.nu / self.s_dict.nu.sum(axis=1)[:, None]
+            _nu = self.x[:, None] @ self.lam_dict.log[None] - self.lam_dict.e[None] + self.pi_dict.log[None]
+            self.s_dict.nu = np.exp(_nu - logsumexp(_nu, axis=1)[:, None])
             self.s_dict.e = self.s_dict.nu
 
             # pi
@@ -165,7 +161,7 @@ class PoissonMixtureModel:
 
     def plot_elbo(self) -> None:
         fig, ax = plt.subplots()
-        ax.plot(np.arange(len(self.elbo_list)), self.elbo_list)
+        ax.plot(np.arange(len(self.elbo_list[5:])), self.elbo_list[5:])
         plt.show()
         plt.close()
 
@@ -186,26 +182,26 @@ def datagenerator(size: np.ndarray, lam: np.ndarray) -> np.ndarray:
 
 if __name__ == '__main__':
 
-    size = [100, 200]
-    lam = [2, 8]
+    size = [1000, 2000]
+    lam = [2, 16]
 
     data = datagenerator(size, lam)
 
     pmm = PoissonMixtureModel()
 
-    pmm.fit(data, 2, method='col-gibbs')
+    pmm.fit(data, 2, method='vb')
 
     # 完全なelboではないから負になってない。変数に依存する項は含まれている。
-    # pmm.plot_elbo()
+    pmm.plot_elbo()
 
-    # params = pmm.get_params()
-    # x_range = np.arange(20)
-    # plt.figure()
-    # plt.hist(data, density=True, bins=15)
-    # plt.plot(x_range, params['pi'][0]*poisson.pmf(x_range, params['lam'][0]))
-    # plt.plot(x_range, params['pi'][1]*poisson.pmf(x_range, params['lam'][1]))
-    # plt.show()
-    # plt.close()
-    # print(params)
-    print(pmm.s_dict.e)
-    print(pmm.s_dict.e.sum(axis=0))
+    params = pmm.get_params()
+    x_range = np.arange(30)
+    plt.figure()
+    plt.hist(data, density=True, bins=30)
+    plt.plot(x_range, params['pi'][0]*poisson.pmf(x_range, params['lam'][0]))
+    plt.plot(x_range, params['pi'][1]*poisson.pmf(x_range, params['lam'][1]))
+    plt.show()
+    plt.close()
+    print(params)
+    # print(pmm.s_dict.e)
+    # print(pmm.s_dict.e.sum(axis=0))
